@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\JWT;
 use Tymon\JWTAuth\JWTAuth;
 
@@ -39,7 +40,11 @@ class LoginController extends Controller
         }
 
         return response()->json(
-            ['error' => 'Unauthorized'],
+            [
+                'status' => 'Error',
+                'message' => 'Invalid email or password',
+
+            ],
             Response::HTTP_UNAUTHORIZED
         );
     }
@@ -63,12 +68,18 @@ class LoginController extends Controller
 
         if ($user->save()) {
             $credentials = $request->only('email', 'password');
-            if ($token = $this->guard()->setTTL(24*60)->attempt($credentials)) {
+            if ($token = $this->guard()->attempt($credentials)) {
                 return $this->respondWithToken($token);
             }
         }
         return response()->json(
-            ['error' => 'Something went wrong'],
+            [
+                'status' => 'Error',
+                'message' => 'Internal Server Error',
+                'error' => [
+                    'server_error' => 'Something went wrong'
+                ]
+            ],
             Response::HTTP_UNAUTHORIZED
         );
 
@@ -81,7 +92,11 @@ class LoginController extends Controller
      */
     public function me()
     {
-        return response()->json($this->guard()->user(), Response::HTTP_OK);
+        return response()->json([
+            'status' => 'Success',
+            'message' => 'Data Retrieved Successfully',
+            'data' => $this->guard()->user()
+        ], Response::HTTP_OK);
     }
 
     /**
@@ -93,7 +108,7 @@ class LoginController extends Controller
     {
         $this->guard()->logout();
 
-        return response()->json(['message' => 'Successfully logged out'], Response::HTTP_OK);
+        return response()->json([ 'status' => 'Success', 'message' => 'Successfully logged out'], Response::HTTP_OK);
     }
 
     /**
@@ -106,6 +121,46 @@ class LoginController extends Controller
         return $this->respondWithToken($this->guard()->refresh());
     }
 
+
+    public function change_password(Request $request)
+    {
+        $input = $request->all();
+        $userid = $request->user('api')->id;
+        $rules = array(
+            'old_password' => 'required',
+            'new_password' => 'required',
+            'confirm_password' => 'required|same:new_password',
+        );
+        $validator = Validator::make($input, $rules);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'Error',
+                'message' => 'Validation Error',
+            ], Response::HTTP_NOT_ACCEPTABLE);
+        } else {
+            if ((Hash::check(request('old_password'), $request->user('api')->password)) == false) {
+                return response()->json([
+                    'status' => 'Error',
+                    'message' => 'Please enter a password which is not similar then current password.',
+                ], Response::HTTP_NOT_ACCEPTABLE);
+            } else if ((Hash::check(request('new_password'), Auth::user()->password)) == true) {
+                return response()->json([
+                    'status' => 'Error',
+                    'message' => 'Please enter a password which is not similar then current password.',
+                ], Response::HTTP_NOT_ACCEPTABLE);
+            } else {
+                User::where('id', $userid)->update(['password' => Hash::make($input['new_password'])]);
+
+                return response()->json([
+                    'status' => 'Success',
+                    'message' => 'Password updated successfully.'
+                ], Response::HTTP_OK);
+            }
+        }
+    }
+
+
     /**
      * Get the token array structure.
      *
@@ -116,9 +171,10 @@ class LoginController extends Controller
     protected function respondWithToken($token)
     {
         return response()->json([
+            'status' => 'Success',
             'access_token' => $token,
             'token_type' => 'bearer',
-            'expires_in' => 60 * 24
+            'data' => $this->guard()->user()
         ], Response::HTTP_OK);
     }
 
@@ -136,7 +192,13 @@ class LoginController extends Controller
     public function un_authenticate(){
 
             return response()->json(
-                ['error' => 'Unauthorized access!'],
+                [
+                    'status' => 'Error',
+                    'message' => 'Authorization Error',
+                    'error' => [
+                        'authorization_error' => 'Unauthorized'
+                    ]
+                ],
                 Response::HTTP_UNAUTHORIZED
             );
     }
